@@ -71,6 +71,18 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// Serve frontend static files in production
+import path from "path";
+if (process.env.NODE_ENV === "production") {
+  const frontendPath = path.join(__dirname, "../../web/dist");
+  app.use(express.static(frontendPath));
+  
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(frontendPath, "index.html"));
+  });
+}
+
+
 io.on("connection", (socket) => {
   console.log("Client connected", socket.id);
   
