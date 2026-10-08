@@ -13,7 +13,7 @@ RUN npm install
 COPY . .
 
 # Generate Prisma client
-RUN npm run db:generate
+RUN npx prisma generate
 
 # Build Web (Frontend)
 RUN cd apps/web && npm run build
@@ -41,4 +41,4 @@ ENV PORT=8080
 ENV NODE_ENV=production
 
 # Run migrations and start server
-CMD npx prisma migrate deploy && node apps/api/dist/server.js
+CMD node apps/api/dist/server.js
