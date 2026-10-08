@@ -1,0 +1,173 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String         @id @default(uuid())
+  email          String         @unique // Pondicherry University email
+  passwordHash   String
+  name           String
+  role           String         @default("BUYER") // BUYER, SELLER
+  verified       Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  listings       Listing[]      @relation("SellerListings")
+  offersMade     Offer[]        @relation("BuyerOffers")
+  ordersBought   Order[]        @relation("BuyerOrders")
+  ordersSold     Order[]        @relation("SellerOrders")
+  sentMessages   Message[]      @relation("SentMessages")
+  reviews        Review[]       @relation("ReviewsWritten")
+  wishlist       Wishlist[]
+  notifications  Notification[]
+  reports        Report[]       @relation("ReportsMade")
+  reported       Report[]       @relation("ReportedUser")
+  blocks         Block[]        @relation("Blocker")
+  blockedBy      Block[]        @relation("BlockedUser")
+}
+
+model Listing {
+  id             String         @id @default(uuid())
+  title          String
+  description    String
+  price          Float
+  category       String
+  condition      String
+  availability   String         @default("AVAILABLE") // AVAILABLE, RESERVED, SOLD
+  imageUrl       String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  sellerId       String
+  seller         User           @relation("SellerListings", fields: [sellerId], references: [id])
+  
+  priceHistory   PriceHistory[]
+  offers         Offer[]
+  orders         Order[]
+  wishlistedBy   Wishlist[]
+  messages       Message[]
+}
+
+model PriceHistory {
+  id             String         @id @default(uuid())
+  price          Float
+  createdAt      DateTime       @default(now())
+  
+  listingId      String
+  listing        Listing        @relation(fields: [listingId], references: [id], onDelete: Cascade)
+}
+
+model Offer {
+  id             String         @id @default(uuid())
+  price          Float
+  status         String         @default("PENDING") // PENDING, COUNTERED, ACCEPTED, REJECTED, EXPIRED
+  pickupPoint    String?
+  pickupDate     String?
+  pickupTime     String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  buyerId        String
+  buyer          User           @relation("BuyerOffers", fields: [buyerId], references: [id])
+  listingId      String
+  listing        Listing        @relation(fields: [listingId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id             String         @id @default(uuid())
+  price          Float
+  status         String         @default("COMPLETED")
+  pickupPoint    String?
+  pickupDate     String?
+  pickupTime     String?
+  createdAt      DateTime       @default(now())
+
+  buyerId        String
+  buyer          User           @relation("BuyerOrders", fields: [buyerId], references: [id])
+  sellerId       String
+  seller         User           @relation("SellerOrders", fields: [sellerId], references: [id])
+  listingId      String
+  listing        Listing        @relation(fields: [listingId], references: [id])
+  
+  review         Review?
+}
+
+model Message {
+  id             String         @id @default(uuid())
+  content        String
+  createdAt      DateTime       @default(now())
+  
+  senderId       String
+  sender         User           @relation("SentMessages", fields: [senderId], references: [id])
+  listingId      String
+  listing        Listing        @relation(fields: [listingId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id             String         @id @default(uuid())
+  rating         Int
+  comment        String?
+  createdAt      DateTime       @default(now())
+
+  authorId       String
+  author         User           @relation("ReviewsWritten", fields: [authorId], references: [id])
+  orderId        String         @unique
+  order          Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Wishlist {
+  id             String         @id @default(uuid())
+  createdAt      DateTime       @default(now())
+
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId      String
+  listing        Listing        @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listingId])
+}
+
+model Notification {
+  id             String         @id @default(uuid())
+  type           String
+  content        String
+  read           Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Report {
+  id             String         @id @default(uuid())
+  reason         String
+  createdAt      DateTime       @default(now())
+
+  reporterId     String
+  reporter       User           @relation("ReportsMade", fields: [reporterId], references: [id])
+  reportedUserId String?
+  reportedUser   User?          @relation("ReportedUser", fields: [reportedUserId], references: [id])
+}
+
+model Block {
+  id             String         @id @default(uuid())
+  createdAt      DateTime       @default(now())
+
+  blockerId      String
+  blocker        User           @relation("Blocker", fields: [blockerId], references: [id])
+  blockedId      String
+  blocked        User           @relation("BlockedUser", fields: [blockedId], references: [id])
+
+  @@unique([blockerId, blockedId])
+}
+
+model PickupPoint {
+  id             String         @id @default(uuid())
+  name           String         @unique
+  description    String?
+}
