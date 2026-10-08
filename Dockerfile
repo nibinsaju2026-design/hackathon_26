@@ -5,8 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
-COPY packages/database/package.json ./packages/database/
-COPY packages/database/prisma ./packages/database/prisma/
+COPY prisma ./prisma/
 
 RUN npm install
 
@@ -35,13 +34,11 @@ COPY --from=base /app/apps/api/package.json ./apps/api/
 COPY --from=base /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=base /app/apps/api/dist ./apps/api/dist
 COPY --from=base /app/apps/web/dist ./apps/web/dist
-COPY --from=base /app/packages/database/package.json ./packages/database/
-COPY --from=base /app/packages/database/prisma ./packages/database/prisma
-COPY --from=base /app/packages/database/node_modules ./packages/database/node_modules
+COPY --from=base /app/prisma ./prisma
 
 EXPOSE 8080
 ENV PORT=8080
 ENV NODE_ENV=production
 
 # Run migrations and start server
-CMD npm run db:deploy && node apps/api/dist/server.js
+CMD npx prisma migrate deploy && node apps/api/dist/server.js
