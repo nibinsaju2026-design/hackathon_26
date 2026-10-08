@@ -1,107 +1,95 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { ArrowRight, BadgeCheck, BookOpen, Clock3, HeartHandshake, History, Search, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { api } from '../lib/api';
+import type { Listing } from '../lib/types';
+import { ListingCard } from '../components/UI';
+
+const features = [
+  { icon: Search, title: 'Searchable listings', text: 'Find the exact thing you need, without scrolling through old chats.' },
+  { icon: Clock3, title: 'Clear availability', text: 'Know at a glance what is available, reserved, or already sold.' },
+  { icon: ShieldCheck, title: 'Verified students', text: 'Trade within a community built around Pondicherry University.' },
+  { icon: HeartHandshake, title: 'Offers & negotiation', text: 'Make an offer and agree on a campus pickup that works for you.' },
+  { icon: History, title: 'Transaction history', text: 'Keep a clear record of completed campus transactions.' },
+];
 
 export default function Home() {
-  const [listings, setListings] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      setLoading(true);
-      fetch(`http://localhost:8080/api/listings?search=${encodeURIComponent(searchQuery)}`)
-        .then(res => res.json())
-        .then(resData => {
-          setListings(resData.data || []);
-          setLoading(false);
-        })
-        .catch(() => setLoading(false));
-    }, 500);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [listingError, setListingError] = useState('');
+  const navigate = useNavigate();
 
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery]);
+  useEffect(() => {
+    api<{ data: Listing[] }>('/api/listings?limit=3')
+      .then((result) => { setListings(result.data); setListingError(''); })
+      .catch((err) => setListingError(err instanceof Error ? err.message : 'Could not load recent listings.'));
+  }, []);
+
+  const [query, setQuery] = useState('');
+  const browse = (event: React.FormEvent) => {
+    event.preventDefault();
+    navigate(`/browse?search=${encodeURIComponent(query)}`);
+  };
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* Hero Section */}
-      <div className="glass-panel p-8 md:p-12 text-center relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-primary-500/20 rounded-full blur-[80px] -z-10 mix-blend-screen"></div>
-        <h1 className="text-4xl md:text-5xl font-display font-extrabold mb-4 tracking-tight bg-gradient-to-br from-white to-gray-400 bg-clip-text text-transparent">
-          Student Marketplace
-        </h1>
-        <p className="text-gray-400 max-w-2xl mx-auto mb-8 text-lg">
-          Buy and sell textbooks, electronics, and dorm essentials safely within the verified Pondicherry University network.
-        </p>
-        <div className="max-w-xl mx-auto relative group">
-          <input 
-            type="text" 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search items..." 
-            className="w-full glass-panel !bg-surface-hover border-border rounded-xl px-6 py-4 text-lg focus:outline-none focus:ring-2 focus:ring-primary-500/50 transition-all shadow-[0_4px_30px_rgba(0,0,0,0.1)] group-hover:bg-white/[0.05]"
-          />
-          <svg className="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 text-gray-400 group-hover:text-primary-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {loading ? (
-          // Skeleton Loaders
-          [...Array(8)].map((_, i) => (
-            <div key={i} className="glass-panel overflow-hidden animate-pulse">
-              <div className="h-48 bg-surface-hover"></div>
-              <div className="p-5 space-y-4">
-                <div className="h-6 bg-surface-hover rounded-md w-3/4"></div>
-                <div className="h-8 bg-surface-hover rounded-md w-1/3"></div>
-                <div className="flex gap-2"><div className="h-4 bg-surface-hover rounded-md w-1/4"></div><div className="h-4 bg-surface-hover rounded-md w-1/4"></div></div>
-              </div>
-            </div>
-          ))
-        ) : listings.length === 0 ? (
-          <div className="col-span-full py-20 text-center text-gray-500">
-            <p className="text-xl">No items found matching "{searchQuery}"</p>
+    <div className="animate-fade-in">
+      <section className="hero glass-panel">
+        <div className="hero-content">
+          <span className="hero-kicker"><Sparkles size={14} /> The campus marketplace, reimagined</span>
+          <h1>Buy and sell on campus, <span className="gradient-text">without WhatsApp chaos.</span></h1>
+          <p>A better way for Pondicherry University students to pass things on, find a great deal, and make campus life a little easier.</p>
+          <form className="search-hero" onSubmit={browse}>
+            <Search size={19} className="muted" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search books, cycles, electronics..." aria-label="Search listings" />
+            <button className="button-primary" type="submit">Search <ArrowRight size={15} /></button>
+          </form>
+          <div className="hero-ctas">
+            <Link to="/login" className="button-primary"><BadgeCheck size={16} /> Sign in with university email</Link>
+            <Link to="/browse" className="button-secondary">Explore listings</Link>
           </div>
-        ) : (
-          listings.map((listing, i) => (
-            <Link 
-              key={listing.id} 
-              to={`/listing/${listing.id}`} 
-              className="glass-panel overflow-hidden group hover:-translate-y-1 hover:shadow-2xl hover:shadow-primary-500/10 transition-all duration-300"
-              style={{ animationDelay: `${i * 50}ms` }}
-            >
-              <div className="h-52 bg-surface-hover relative overflow-hidden">
-                {listing.imageUrl ? (
-                  <img src={listing.imageUrl} alt={listing.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center text-gray-500 font-medium">No Image</div>
-                )}
-                <div className="absolute top-3 left-3 px-3 py-1 bg-black/60 backdrop-blur-md rounded-full text-xs font-semibold border border-white/10 text-white shadow-lg">
-                  {listing.category}
-                </div>
-              </div>
-              <div className="p-5">
-                <h3 className="font-semibold text-lg text-white mb-1 truncate">{listing.title}</h3>
-                <p className="text-primary-400 font-display font-bold text-2xl mb-3">₹{listing.price.toLocaleString('en-IN')}</p>
-                <div className="flex items-center justify-between text-xs font-medium text-gray-400 mb-4">
-                  <span className="px-2 py-1 bg-surface-hover rounded-md border border-white/5">{listing.condition}</span>
-                  <span className={`px-2 py-1 rounded-md border ${listing.availability === 'AVAILABLE' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'}`}>
-                    {listing.availability}
-                  </span>
-                </div>
-                <div className="pt-4 border-t border-white/10 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-blue-600 flex items-center justify-center text-sm font-bold shadow-md">
-                    {listing.seller.name.charAt(0)}
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-medium text-gray-200">{listing.seller.name}</span>
-                    {listing.seller.verified && <span className="text-blue-400 text-[10px] uppercase tracking-wider font-bold">Verified Student</span>}
-                  </div>
-                </div>
-              </div>
-            </Link>
-          ))
-        )}
-      </div>
+          <div className="hero-proof"><ShieldCheck size={15} /> A student-to-student marketplace, just for Pondicherry University</div>
+        </div>
+      </section>
+
+      <section className="problem-solution">
+        <article className="info-card glass-panel">
+          <span className="eyebrow">The old way</span>
+          <h2>Great finds get lost in the scroll.</h2>
+          <p>WhatsApp groups bury listings under messages. Prices are hard to compare, availability is anyone’s guess, and sellers have to keep reposting.</p>
+        </article>
+        <article className="info-card glass-panel">
+          <span className="eyebrow">A campus-first fix</span>
+          <h2>Everything you need, all in one place.</h2>
+          <p>Browse searchable listings, check status, make a structured offer, and arrange a pickup—right here in your university community.</p>
+        </article>
+      </section>
+
+      <section className="feature-section">
+        <div className="section-heading"><div><p className="eyebrow">Made for campus life</p><h2>Less hunting. Better handoffs.</h2></div></div>
+        <div className="feature-grid">
+          {features.map(({ icon: Icon, title, text }) => (
+            <article className="feature-card glass-panel" key={title}>
+              <span className="feature-icon"><Icon size={17} /></span><h3>{title}</h3><p>{text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="feature-section">
+        <div className="section-heading">
+          <div><p className="eyebrow">Fresh from campus</p><h2>Recently listed</h2></div>
+          <Link className="button-secondary" to="/browse">See all listings <ArrowRight size={14} /></Link>
+        </div>
+        {listingError
+          ? <div className="info-card glass-panel flex items-center gap-3 muted"><BookOpen size={18} /><span>Recent listings could not be loaded: {listingError}. You can retry from <Link className="text-[var(--accent)]" to="/browse">Explore</Link>.</span></div>
+          : listings.length > 0
+            ? <div className="listing-grid">{listings.map((listing) => <ListingCard key={listing.id} listing={listing} />)}</div>
+            : <div className="info-card glass-panel flex items-center gap-3 muted"><BookOpen size={18} /> Be the first to post something for your campus community.</div>}
+      </section>
+
+      <section className="info-card glass-panel flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div><p className="eyebrow">Your campus. Your community.</p><h2 className="m-0 text-xl">Ready to find your next campus essential?</h2></div>
+        <Link to="/browse" className="button-primary">Start exploring <TrendingUp size={15} /></Link>
+      </section>
     </div>
   );
 }

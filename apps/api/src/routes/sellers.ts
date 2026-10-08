@@ -10,14 +10,13 @@ router.get('/:id', async (req, res) => {
     const sellerId = req.params.id;
 
     const seller = await prisma.user.findUnique({
-      where: { id: sellerId, role: 'SELLER' },
+      where: { id: sellerId },
       select: {
         id: true,
         name: true,
         verified: true,
         createdAt: true,
         listings: {
-          where: { availability: 'AVAILABLE' },
           orderBy: { createdAt: 'desc' }
         },
         ordersSold: {

@@ -1,133 +1,70 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Star } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { api } from '../lib/api';
+import type { Order } from '../lib/types';
+import useRequireAuth from '../lib/useRequireAuth';
+import { useToast } from '../components/ToastProvider';
+import { EmptyState, PageHeading, StatusPill } from '../components/UI';
 
 export default function Orders() {
-  const [orders, setOrders] = useState<any[]>([]);
+  const user = useRequireAuth();
+  const toast = useToast();
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [reviewModalOpen, setReviewModalOpen] = useState(false);
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState<Order | null>(null);
   const [rating, setRating] = useState('5');
   const [comment, setComment] = useState('');
-  const navigate = useNavigate();
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      navigate('/login');
-      return;
-    }
-
-    fetch('http://localhost:8080/api/orders', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(data => {
-        setOrders(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [navigate]);
-
-  const submitReview = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedOrderId) return;
-
+  const load = async () => {
+    setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8080/api/orders/${selectedOrderId}/review`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ rating: Number(rating), comment })
-      });
-
-      if (res.ok) {
-        setReviewModalOpen(false);
-        // Refresh orders to show the new review
-        window.location.reload(); 
-      } else {
-        alert('Failed to submit review');
-      }
+      setOrders(await api<Order[]>('/api/orders', { auth: true }));
+      setError('');
     } catch (err) {
-      alert('Error submitting review');
+      setError(err instanceof Error ? err.message : 'Could not load transactions.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void load(); }, []);
+
+  const submitReview = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!reviewing) return;
+    try {
+      await api(`/api/orders/${reviewing.id}/review`, { method: 'POST', auth: true, body: JSON.stringify({ rating: Number(rating), comment: comment.trim() || undefined }) });
+      toast('Thanks for sharing your experience.');
+      setReviewing(null);
+      setComment('');
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not submit your review.', 'error');
     }
   };
 
-  if (loading) return <div>Loading orders...</div>;
-
+  if (!user) return null;
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Your Orders</h2>
-      
-      {orders.length === 0 ? (
-        <div className="bg-gray-800 p-8 text-center rounded-lg border border-gray-700">
-          <p className="text-gray-400">You haven't made or received any orders yet.</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {orders.map(order => (
-            <div key={order.id} className="bg-gray-800 p-4 rounded-lg border border-gray-700 flex justify-between items-center">
-              <div>
-                <p className="font-semibold text-lg">{order.listing?.title || 'Unknown Item'}</p>
-                <div className="text-sm text-gray-400 mt-1">
-                  <p>Order ID: {order.id}</p>
-                  <p>Status: <span className={order.status === 'COMPLETED' ? 'text-green-400' : 'text-yellow-400'}>{order.status}</span></p>
-                  <p>Locked Price: ₹{order.price}</p>
-                </div>
-              </div>
-              
-              <div className="text-right">
-                {order.status === 'COMPLETED' && !order.review && (
-                   <button 
-                     onClick={() => { setSelectedOrderId(order.id); setReviewModalOpen(true); }}
-                     className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm transition-colors"
-                   >
-                     Leave Review
-                   </button>
-                )}
-                {order.review && (
-                  <div className="text-sm text-yellow-400">
-                    ★ {order.review.rating} / 5
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+      <PageHeading eyebrow="Your trades" title="Transactions" description="Every campus exchange, in one place." />
+      {loading ? <div className="glass-panel p-8 muted animate-pulse">Loading transaction history…</div> : error ? <EmptyState title="Transactions unavailable" description={error} action={<button className="button-secondary" onClick={() => void load()}>Try again</button>} /> : orders.length === 0 ? <EmptyState title="No transactions yet" description="When an offer is accepted, the transaction will appear here." action={<Link to="/browse" className="button-primary">Explore the marketplace</Link>} /> : (
+        <div className="data-table-wrap glass-panel"><table className="data-table"><thead><tr><th>Item</th><th>Student</th><th>Agreed price</th><th>Status</th><th>Review</th></tr></thead><tbody>{orders.map((order) => {
+          const other = order.buyer.id === user.id ? order.seller.name : order.buyer.name;
+          const canReview = order.status === 'COMPLETED' && order.buyer.id === user.id && !order.review;
+          return <tr key={order.id}><td><Link to={`/listing/${order.listing.id}`} className="font-semibold hover:text-[var(--accent)]">{order.listing.title}</Link></td><td className="muted">{other}</td><td>₹{Number(order.price).toLocaleString('en-IN')}</td><td><StatusPill status={order.status} /></td><td>{order.review ? <span className="muted"><Star size={13} className="inline text-yellow-400" fill="currentColor" /> {order.review.rating}/5</span> : canReview ? <button className="button-secondary !min-h-[32px] !px-3 !text-[10px]" onClick={() => setReviewing(order)}>Leave review</button> : <span className="muted">—</span>}</td></tr>;
+        })}</tbody></table></div>
       )}
-
-      {/* Review Modal */}
-      {reviewModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 p-6 rounded-lg w-full max-w-sm border border-gray-700">
-            <h3 className="text-xl font-bold mb-4">Leave a Review</h3>
-            <form onSubmit={submitReview} className="flex flex-col gap-3">
-              <select 
-                value={rating} 
-                onChange={e => setRating(e.target.value)}
-                className="bg-gray-900 border border-gray-700 p-2 rounded"
-              >
-                <option value="5">5 Stars - Excellent</option>
-                <option value="4">4 Stars - Good</option>
-                <option value="3">3 Stars - Average</option>
-                <option value="2">2 Stars - Poor</option>
-                <option value="1">1 Star - Terrible</option>
-              </select>
-              <textarea 
-                value={comment} 
-                onChange={e => setComment(e.target.value)} 
-                placeholder="Optional feedback..."
-                className="bg-gray-900 border border-gray-700 p-2 rounded h-24 resize-none"
-              />
-              <div className="flex justify-end gap-2 mt-4">
-                <button type="button" onClick={() => setReviewModalOpen(false)} className="px-4 py-2 text-gray-400 hover:text-white">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white font-medium">Submit</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {reviewing && <div className="modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) setReviewing(null); }}>
+        <section className="auth-card glass-panel" role="dialog" aria-modal="true" aria-labelledby="review-title">
+          <h2 id="review-title" className="text-xl font-bold">How did it go?</h2><p>Leave a review for your exchange of {reviewing.listing.title}.</p>
+          <form className="grid gap-4" onSubmit={submitReview}>
+            <label><span className="field-label">Rating</span><select className="select-field" value={rating} onChange={(event) => setRating(event.target.value)}>{[5, 4, 3, 2, 1].map((value) => <option key={value} value={value}>{value} / 5 stars</option>)}</select></label>
+            <label><span className="field-label">Comment <span className="muted">(optional)</span></span><textarea className="textarea-field" maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Share a helpful note…" /></label>
+            <div className="flex justify-end gap-2"><button type="button" className="button-secondary" onClick={() => setReviewing(null)}>Cancel</button><button type="submit" className="button-primary">Send review</button></div>
+          </form>
+        </section>
+      </div>}
     </div>
   );
 }

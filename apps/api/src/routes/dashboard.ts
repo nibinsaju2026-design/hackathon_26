@@ -8,40 +8,55 @@ const prisma = new PrismaClient();
 router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.userId;
-    const userRole = req.user!.role;
-
-    // We only provide full dashboard for sellers, buyers get a simplified view
-    if (userRole !== 'SELLER') {
-       return res.json({ message: 'Dashboard only fully available for sellers. Buyers check orders directly.' });
-    }
-
-    const activeListingsCount = await prisma.listing.count({
-      where: { sellerId: userId, availability: 'AVAILABLE' }
-    });
-
-    const offersReceivedCount = await prisma.offer.count({
-      where: { listing: { sellerId: userId }, status: 'PENDING' }
-    });
-
-    const completedDealsCount = await prisma.order.count({
-      where: { sellerId: userId, status: 'COMPLETED' }
-    });
-    
-    const myActiveListings = await prisma.listing.findMany({
-      where: { sellerId: userId, availability: 'AVAILABLE' },
-      orderBy: { createdAt: 'desc' }
-    });
+    const [listings, offersReceived, offersSent, orders, activeListings, completedDeals] = await Promise.all([
+      prisma.listing.findMany({
+        where: { sellerId: userId },
+        include: { seller: { select: { id: true, name: true, verified: true } } },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.offer.findMany({
+        where: { listing: { sellerId: userId } },
+        include: {
+          buyer: { select: { id: true, name: true, verified: true } },
+          listing: { include: { seller: { select: { id: true, name: true, verified: true } } } }
+        },
+        orderBy: { updatedAt: 'desc' }
+      }),
+      prisma.offer.findMany({
+        where: { buyerId: userId },
+        include: {
+          buyer: { select: { id: true, name: true, verified: true } },
+          listing: { include: { seller: { select: { id: true, name: true, verified: true } } } }
+        },
+        orderBy: { updatedAt: 'desc' }
+      }),
+      prisma.order.findMany({
+        where: { OR: [{ buyerId: userId }, { sellerId: userId }] },
+        include: {
+          listing: true,
+          buyer: { select: { id: true, name: true } },
+          seller: { select: { id: true, name: true } },
+          review: true
+        },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.listing.count({ where: { sellerId: userId, availability: 'AVAILABLE' } }),
+      prisma.order.count({ where: { OR: [{ buyerId: userId }, { sellerId: userId }], status: 'COMPLETED' } })
+    ]);
 
     res.json({
       metrics: {
-        activeListings: activeListingsCount,
-        offersReceived: offersReceivedCount,
-        completedDeals: completedDealsCount
+        activeListings,
+        offersReceived: offersReceived.filter((offer) => offer.status === 'PENDING').length,
+        completedDeals
       },
-      listings: myActiveListings
+      listings,
+      offersReceived,
+      offersSent,
+      orders
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch dashboard metrics' });
+    res.status(500).json({ error: 'Failed to fetch dashboard data' });
   }
 });
 

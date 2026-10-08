@@ -1,77 +1,44 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Bell, Check } from 'lucide-react';
+import { api } from '../lib/api';
+import type { NotificationItem } from '../lib/types';
+import useRequireAuth from '../lib/useRequireAuth';
+import { useToast } from '../components/ToastProvider';
+import { EmptyState, PageHeading } from '../components/UI';
 
 export default function Notifications() {
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const user = useRequireAuth();
+  const toast = useToast();
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
+  const [error, setError] = useState('');
+  const load = async () => {
+    setLoading(true);
+    try { setNotifications(await api<NotificationItem[]>('/api/notifications', { auth: true })); setError(''); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not load notifications.'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, []);
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      navigate('/login');
-      return;
-    }
-
-    fetch('http://localhost:8080/api/notifications', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(data => {
-        setNotifications(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [navigate]);
-
-  const markAsRead = async (id: string) => {
+  const markRead = async (notification: NotificationItem) => {
+    if (notification.read) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/notifications/${id}/read`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (res.ok) {
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-      }
-    } catch (err) {
-      console.error('Error marking as read', err);
-    }
+      await api(`/api/notifications/${notification.id}/read`, { method: 'PATCH', auth: true });
+      setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, read: true } : item));
+    } catch (err) { toast(err instanceof Error ? err.message : 'Could not update notification.', 'error'); }
   };
 
-  if (loading) return <div>Loading notifications...</div>;
-
+  if (!user) return null;
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Notifications</h2>
-      
-      {notifications.length === 0 ? (
-        <div className="bg-gray-800 p-8 text-center rounded-lg border border-gray-700">
-          <p className="text-gray-400">You're all caught up!</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {notifications.map(notification => (
-            <div 
-              key={notification.id} 
-              className={`p-4 rounded-lg border ${notification.read ? 'bg-gray-800 border-gray-700' : 'bg-gray-700 border-blue-500'}`}
-              onClick={() => !notification.read && markAsRead(notification.id)}
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-semibold text-lg">{notification.type}</h3>
-                  <p className="text-gray-300 mt-1">{notification.content}</p>
-                </div>
-                {!notification.read && (
-                  <span className="bg-blue-600 text-xs px-2 py-1 rounded-full">New</span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <PageHeading eyebrow="Stay in the loop" title="Notifications" description="A heads-up when something needs your attention." />
+      {loading ? <div className="glass-panel p-8 muted animate-pulse">Loading notifications…</div> : error ? <EmptyState title="Notifications unavailable" description={error} action={<button className="button-secondary" onClick={() => void load()}>Try again</button>} /> : notifications.length === 0 ? <EmptyState title="You're all caught up" description="New offers and marketplace updates will appear here." /> : <div className="grid gap-3">{notifications.map((notification) => (
+        <button key={notification.id} type="button" className={`notice-row glass-panel text-left ${notification.read ? '' : 'notice-unread'}`} onClick={() => void markRead(notification)}>
+          <span className="feature-icon !mb-0"><Bell size={17} /></span>
+          <span className="flex-1"><strong className="block text-sm">{notification.type}</strong><span className="block muted text-xs mt-1">{notification.content}</span><span className="block muted text-[10px] mt-2">{new Date(notification.createdAt).toLocaleString('en-IN')}</span></span>
+          {notification.read ? <span className="muted text-[10px]">Read</span> : <span className="verified-badge"><Check size={13} /> New</span>}
+        </button>
+      ))}</div>}
     </div>
   );
 }

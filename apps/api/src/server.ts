@@ -6,7 +6,11 @@ import { createAdapter } from "@socket.io/redis-adapter";
 import { createClient } from "redis";
 import cors from "cors";
 import dotenv from "dotenv";
+<<<<<<< Updated upstream
 import { z } from "zod";
+=======
+import path from "path";
+>>>>>>> Stashed changes
 
 dotenv.config();
 
@@ -53,7 +57,7 @@ app.use(cors({
   origin: env.FRONTEND_URL,
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 // Basic Rate Limiting
 const limiter = rateLimit({
@@ -104,6 +108,7 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+<<<<<<< Updated upstream
 // Serve frontend static files in production
 import path from "path";
 if (env.NODE_ENV === "production") {
@@ -115,6 +120,14 @@ if (env.NODE_ENV === "production") {
   });
 }
 
+=======
+const webDistPath = path.resolve(__dirname, "../../web/dist");
+app.use(express.static(webDistPath));
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api/") || req.path === "/health") return next();
+  res.sendFile(path.join(webDistPath, "index.html"));
+});
+>>>>>>> Stashed changes
 
 io.on("connection", (socket) => {
   console.log("Client connected", socket.id);

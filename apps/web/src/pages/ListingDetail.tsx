@@ -1,246 +1,145 @@
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { io, Socket } from 'socket.io-client';
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowLeft, BadgeCheck, CalendarDays, MapPin, Send, ShieldCheck } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { api, getStoredUser } from '../lib/api';
+import type { Listing, Offer } from '../lib/types';
+import { useToast } from '../components/ToastProvider';
+import { EmptyState, PageHeading, StatusPill, VerifiedBadge } from '../components/UI';
 
 export default function ListingDetail() {
-  const { id } = useParams();
-  const [listing, setListing] = useState<any>(null);
-  const [messages, setMessages] = useState<any[]>([]);
-  const [input, setInput] = useState('');
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const { id = '' } = useParams();
+  const navigate = useNavigate();
+  const currentUser = getStoredUser();
+  const toast = useToast();
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [price, setPrice] = useState('');
+  const [message, setMessage] = useState('');
+  const [pickupPoint, setPickupPoint] = useState('');
+  const [pickupDate, setPickupDate] = useState('');
+  const [pickupTime, setPickupTime] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const [showOfferModal, setShowOfferModal] = useState(false);
-  const [offerPrice, setOfferPrice] = useState('');
-  const [pickupPoint, setPickupPoint] = useState('Main Canteen');
-  const [pickupDate, setPickupDate] = useState('Today');
-  const [pickupTime, setPickupTime] = useState('6:30 PM');
+  const loadOffers = useCallback(async () => {
+    if (!localStorage.getItem('token')) return;
+    try {
+      setOffers(await api<Offer[]>(`/api/listings/${id}/offers`, { auth: true }));
+    } catch (err) {
+      setOffers([]);
+      if (!(err instanceof Error) || !err.message.startsWith("Only this listing's seller or offer participants")) {
+        toast(err instanceof Error ? err.message : 'Could not load offer history.', 'error');
+      }
+    }
+  }, [id, toast]);
 
   useEffect(() => {
-    const userData = localStorage.getItem('user');
-    if (userData) {
-      setCurrentUser(JSON.parse(userData));
-    }
-    
-    fetch(`http://localhost:8080/api/listings/${id}`)
-      .then(res => res.json())
-      .then(data => setListing(data));
+    setLoading(true);
+    setError('');
+    api<Listing>(`/api/listings/${id}`)
+      .then((result) => { setListing(result); setPrice(String(result.price)); })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Listing not found.'))
+      .finally(() => setLoading(false));
+    void loadOffers();
+  }, [id, loadOffers]);
 
-    const newSocket = io('http://localhost:8080');
-    setSocket(newSocket);
-
-    newSocket.emit('joinListing', id);
-    newSocket.on('message', (msg) => {
-      setMessages(prev => [...prev, msg]);
-    });
-
-    return () => { newSocket.close(); };
-  }, [id]);
-
-  const sendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || !socket) return;
-    
-    const msg = { text: input, senderId: 'me', timestamp: new Date() };
-    socket.emit('message', { listingId: id, message: msg });
-    setMessages(prev => [...prev, msg]);
-    setInput('');
-  };
-
-  const submitOffer = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitOffer = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!currentUser) { navigate('/login'); return; }
+    setSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:8080/api/listings/${id}/offers`, {
+      await api(`/api/listings/${id}/offers`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          price: Number(offerPrice),
-          pickupPoint,
-          pickupDate,
-          pickupTime
-        })
+        auth: true,
+        body: JSON.stringify({ price: Number(price), pickupPoint, pickupDate, pickupTime, message: message.trim() || undefined })
       });
-      if (res.ok) {
-        setShowOfferModal(false);
-        const msg = { text: `OFFER MADE: ₹${offerPrice} at ${pickupPoint} on ${pickupDate} ${pickupTime}`, senderId: 'me', timestamp: new Date() };
-        socket?.emit('message', { listingId: id, message: msg });
-        setMessages(prev => [...prev, msg]);
-      } else {
-        alert('Failed to make offer');
-      }
+      toast('Your offer has been sent to the seller.');
+      setMessage('');
+      await loadOffers();
     } catch (err) {
-      alert('Error making offer');
+      toast(err instanceof Error ? err.message : 'Could not send the offer.', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  if (!listing) return (
-    <div className="flex items-center justify-center h-[60vh] animate-pulse">
-      <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-    </div>
-  );
+  if (loading) return <div className="glass-panel p-8 animate-pulse muted">Loading this campus listing…</div>;
+  if (error || !listing) return <EmptyState title="Listing unavailable" description={error || 'This listing may have been removed.'} action={<Link to="/browse" className="button-secondary"><ArrowLeft size={14} /> Back to browsing</Link>} />;
+
+  const isSeller = currentUser?.id === listing.sellerId;
 
   return (
-    <div className="relative animate-fade-in max-w-6xl mx-auto">
-      {showOfferModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="glass-panel p-8 rounded-2xl w-full max-w-md border border-border shadow-2xl relative">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-primary-500/20 rounded-full blur-[50px] -z-10 mix-blend-screen"></div>
-            <h3 className="text-2xl font-display font-bold mb-6 tracking-tight text-white">Make an Offer</h3>
-            <form onSubmit={submitOffer} className="flex flex-col gap-4">
-              <div>
-                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1 block">Offer Price</label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">₹</span>
-                  <input type="number" value={offerPrice} onChange={e => setOfferPrice(e.target.value)} placeholder="0.00" required className="w-full glass-panel !bg-surface-hover border-border pl-8 pr-4 py-3 rounded-xl focus:outline-none focus:border-primary-500 transition-colors" />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1 block">Pickup Location</label>
-                <input type="text" value={pickupPoint} onChange={e => setPickupPoint(e.target.value)} required className="w-full glass-panel !bg-surface-hover border-border px-4 py-3 rounded-xl focus:outline-none focus:border-primary-500 transition-colors" />
-              </div>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1 block">Date</label>
-                  <input type="text" value={pickupDate} onChange={e => setPickupDate(e.target.value)} required className="w-full glass-panel !bg-surface-hover border-border px-4 py-3 rounded-xl focus:outline-none focus:border-primary-500 transition-colors" />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1 block">Time</label>
-                  <input type="text" value={pickupTime} onChange={e => setPickupTime(e.target.value)} required className="w-full glass-panel !bg-surface-hover border-border px-4 py-3 rounded-xl focus:outline-none focus:border-primary-500 transition-colors" />
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 mt-6">
-                <button type="button" onClick={() => setShowOfferModal(false)} className="px-5 py-2.5 rounded-xl font-medium text-gray-300 hover:text-white hover:bg-surface-hover transition-colors">Cancel</button>
-                <button type="submit" className="px-5 py-2.5 rounded-xl primary-gradient font-bold shadow-lg text-white transition-all">Send Offer</button>
-              </div>
-            </form>
+    <div>
+      <div className="mb-5"><Link to="/browse" className="nav-link"><ArrowLeft size={15} /> Back to listings</Link></div>
+      <div className="listing-detail-grid">
+        <div className="detail-column">
+          <div className="gallery-frame glass-panel">
+            {listing.imageUrl ? <img src={listing.imageUrl} alt={listing.title} /> : <div className="listing-placeholder"><span className="text-lg">No photo for this listing</span></div>}
+            <span className="category-tag">{listing.category}</span>
           </div>
+          <section className="detail-card glass-panel">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><p className="eyebrow">{listing.category}</p><h1 className="page-title !text-3xl">{listing.title}</h1></div>
+              <p className="listing-price !text-2xl">₹{Number(listing.price).toLocaleString('en-IN')}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 mt-4"><StatusPill status={listing.availability} /><span className="offer-chip">{listing.condition}</span>{listing.hostel && <span className="offer-chip"><MapPin size={12} /> {listing.hostel}</span>}<span className="muted text-xs">Listed {new Date(listing.createdAt).toLocaleDateString('en-IN')}</span></div>
+            <h2 className="mt-7 text-base font-semibold">About this item</h2>
+            <p className="detail-description">{listing.description}</p>
+          </section>
+          <section className="detail-card glass-panel">
+            <h2 className="text-base font-semibold">Meet the seller</h2>
+            <Link to={`/profile/${listing.seller?.id ?? listing.sellerId}`} className="seller-profile-link">
+              <span className="avatar">{listing.seller?.name?.charAt(0).toUpperCase() ?? 'S'}</span>
+              <span className="flex-1"><strong className="block">{listing.seller?.name ?? 'Campus seller'}</strong><span className="muted text-xs">Pondicherry University community member</span></span>
+              {listing.seller?.verified && <VerifiedBadge />}
+            </Link>
+          </section>
         </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column - Details */}
-        <div className="lg:col-span-7 space-y-6">
-          <div className="h-[400px] glass-panel rounded-2xl overflow-hidden flex items-center justify-center p-2 relative group">
-            {listing.imageUrl ? (
-              <img src={listing.imageUrl} alt={listing.title} className="w-full h-full object-cover rounded-xl" />
-            ) : (
-              <div className="w-full h-full bg-surface-hover rounded-xl flex items-center justify-center border border-white/5">
-                <span className="text-gray-500 text-lg font-medium">No Image Available</span>
-              </div>
-            )}
-            <div className="absolute top-6 left-6 px-4 py-1.5 bg-black/60 backdrop-blur-md rounded-full text-sm font-semibold border border-white/10 shadow-lg uppercase tracking-wide text-gray-200">
-              {listing.category}
-            </div>
-          </div>
-          
-          <div className="glass-panel p-8 rounded-2xl">
-            <div className="flex justify-between items-start mb-2">
-              <h2 className="text-3xl font-display font-bold text-white tracking-tight">{listing.title}</h2>
-              <p className="text-3xl font-display font-extrabold text-primary-400">₹{listing.price.toLocaleString('en-IN')}</p>
-            </div>
-            <div className="flex items-center gap-3 text-sm font-medium text-gray-400 mb-6">
-              <span className="px-3 py-1 bg-surface-hover rounded-lg border border-white/5">{listing.condition}</span>
-              <span className={`px-3 py-1 rounded-lg border ${listing.availability === 'AVAILABLE' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'}`}>
-                {listing.availability}
-              </span>
-              <span>• Listed 2 hours ago</span>
-            </div>
-            
-            <div className="prose prose-invert prose-p:text-gray-300 max-w-none border-t border-border pt-6">
-              <h3 className="text-lg font-semibold text-white mb-3 font-display">Description</h3>
-              <p className="leading-relaxed">{listing.description}</p>
-            </div>
-            
-            <div className="mt-8 pt-6 border-t border-border">
-              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">About the Seller</h3>
-              <div className="flex items-center gap-4 bg-surface-hover p-4 rounded-xl border border-white/5">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-blue-600 flex items-center justify-center text-xl font-bold shadow-md text-white">
-                  {listing.seller.name.charAt(0)}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-lg text-white">{listing.seller.name}</p>
-                    {listing.seller.verified && <span className="bg-blue-500/20 text-blue-400 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold border border-blue-500/30">Verified</span>}
+        <aside className="offer-panel glass-panel">
+          {isSeller ? (
+            <>
+              <p className="eyebrow">Your listing</p><h2 className="m-0 text-xl">Offers & interest</h2>
+              <p className="page-description !text-xs">Manage the offers from your dashboard.</p>
+              <Link to="/dashboard" className="button-primary w-full mt-4">Open dashboard</Link>
+            </>
+          ) : (
+            <>
+              <p className="eyebrow">Make it yours</p><h2 className="m-0 text-xl">Make an offer</h2>
+              <p className="page-description !text-xs">Suggest a price and where you can meet on campus.</p>
+              {listing.availability !== 'AVAILABLE' ? <div className="info-box mt-4">This item is no longer available to offer on.</div> : !currentUser ? (
+                <div className="mt-5 grid gap-3"><div className="info-box">Sign in with your university email to make an offer.</div><Link to="/login" className="button-primary w-full">Sign in to make an offer</Link></div>
+              ) : (
+                <form onSubmit={submitOffer} className="grid gap-3 mt-5">
+                  <label><span className="field-label">Your offer (₹)</span><input className="field" type="number" min="1" step="1" required value={price} onChange={(event) => setPrice(event.target.value)} /></label>
+                  <label><span className="field-label">Campus pickup spot</span><input className="field" required value={pickupPoint} onChange={(event) => setPickupPoint(event.target.value)} placeholder="e.g. Main canteen" /></label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label><span className="field-label"><CalendarDays size={12} className="inline mr-1" />Date</span><input className="field" type="date" required value={pickupDate} onChange={(event) => setPickupDate(event.target.value)} /></label>
+                    <label><span className="field-label">Time</span><input className="field" type="time" required value={pickupTime} onChange={(event) => setPickupTime(event.target.value)} /></label>
                   </div>
-                  <p className="text-sm text-gray-400 mt-0.5">Usually replies in 8 min • Sold 3 items</p>
+                  <label><span className="field-label">A note to the seller <span className="muted">(optional)</span></span><textarea className="textarea-field !min-h-[78px]" maxLength={500} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Say hello or share a pickup detail…" /></label>
+                  <button className="button-primary w-full mt-1" type="submit" disabled={submitting}><Send size={14} /> {submitting ? 'Sending…' : 'Send offer'}</button>
+                </form>
+              )}
+            </>
+          )}
+          {currentUser && (
+            <div className="mt-6 pt-5 border-t border-[var(--border)]">
+              <h3 className="m-0 text-sm font-semibold flex items-center gap-2"><BadgeCheck size={15} className="verified-icon" /> Offer history</h3>
+              {offers.length === 0 ? <p className="muted text-xs mt-3">Offer history will appear here for the seller and students who have made an offer.</p> : (
+                <div className="offer-list">
+                  {offers.map((offer) => <article key={offer.id} className="offer-card glass-panel !shadow-none">
+                    <div className="offer-card-head"><strong>₹{Number(offer.price).toLocaleString('en-IN')}</strong><StatusPill status={offer.status} /></div>
+                    <p className="muted text-xs my-2">{offer.buyer?.name ?? 'Student'} · {new Date(offer.createdAt).toLocaleDateString('en-IN')}</p>
+                    {offer.message && <p className="detail-description !text-xs !m-0">{offer.message}</p>}
+                    <p className="muted text-[10px] mt-2">{offer.pickupPoint} · {offer.pickupDate} at {offer.pickupTime}</p>
+                  </article>)}
                 </div>
-                <button className="ml-auto glass-button px-4 py-2 text-sm font-medium">View Profile</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column - Chat & Actions */}
-        <div className="lg:col-span-5">
-          <div className="flex flex-col h-[650px] glass-panel rounded-2xl overflow-hidden sticky top-28 shadow-2xl border border-border">
-            {/* Chat Header */}
-            <div className="p-5 border-b border-border bg-surface-hover/50 backdrop-blur-md flex justify-between items-center z-10">
-              <div>
-                <h3 className="font-semibold text-lg font-display text-white">Negotiation Chat</h3>
-                <p className="text-xs text-gray-400">Directly with {listing.seller.name}</p>
-              </div>
-              {currentUser?.id !== listing.seller.id && (
-                <button onClick={() => setShowOfferModal(true)} className="primary-gradient px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-transform hover:scale-105 active:scale-95">
-                  Make Offer
-                </button>
               )}
             </div>
-            
-            {/* Messages Area */}
-            <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-4 bg-background/30 custom-scrollbar">
-              {messages.length === 0 && (
-                <div className="m-auto text-center space-y-3">
-                  <div className="w-12 h-12 rounded-full bg-surface-hover border border-white/5 flex items-center justify-center mx-auto text-gray-500">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
-                  </div>
-                  <p className="text-sm font-medium text-gray-400">Start the conversation</p>
-                  <p className="text-xs text-gray-500 max-w-[200px] mx-auto">Messages are end-to-end encrypted and visible only to you.</p>
-                </div>
-              )}
-              {messages.map((m, i) => (
-                 <div key={i} className={`max-w-[85%] flex flex-col ${m.senderId === 'me' ? 'self-end items-end' : 'self-start items-start'} animate-slide-up`} style={{ animationDelay: '50ms' }}>
-                   <div className={`p-3.5 rounded-2xl shadow-sm ${m.senderId === 'me' ? 'bg-primary-600 text-white rounded-tr-sm' : 'bg-surface-hover text-gray-100 border border-border rounded-tl-sm'}`}>
-                     <p className="text-sm leading-relaxed">{m.text}</p>
-                     
-                     {/* System Offer Injection */}
-                     {m.text.startsWith('OFFER MADE:') && (
-                       <div className="mt-3 pt-3 border-t border-white/20 flex flex-col gap-2">
-                         {currentUser?.id === listing.seller.id ? (
-                           <div className="flex gap-2 w-full">
-                             <button className="flex-1 bg-green-500 hover:bg-green-600 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-colors shadow-sm" onClick={() => alert('Accepting via /api/offers/:id...')}>Accept Offer</button>
-                             <button className="flex-1 bg-surface hover:bg-white/20 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-colors border border-white/10" onClick={() => alert('Counter via /api/offers/:id...')}>Counter</button>
-                           </div>
-                         ) : (
-                           <span className="text-xs font-medium text-primary-200 bg-primary-700/50 px-2 py-1 rounded w-fit">Waiting for seller response...</span>
-                         )}
-                       </div>
-                     )}
-                   </div>
-                   <span className="text-[10px] text-gray-500 font-medium mt-1 px-1">
-                     {m.senderId === 'me' ? 'You' : listing.seller.name} • Just now
-                   </span>
-                 </div>
-              ))}
-            </div>
-            
-            {/* Input Area */}
-            <form onSubmit={sendMessage} className="p-4 border-t border-border bg-surface-hover/30 flex gap-3 backdrop-blur-md">
-              <input 
-                type="text" 
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                className="flex-1 bg-background border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all shadow-inner" 
-                placeholder="Type a message..." 
-              />
-              <button type="submit" disabled={!input.trim()} className="bg-primary-600 hover:bg-primary-500 disabled:opacity-50 disabled:hover:bg-primary-600 px-5 py-3 rounded-xl transition-colors flex items-center justify-center shadow-lg group">
-                <svg className="w-5 h-5 text-white group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
-              </button>
-            </form>
-          </div>
-        </div>
+          )}
+          <div className="info-box mt-5 flex items-start gap-2"><ShieldCheck size={15} className="mt-0.5 shrink-0" /> Keep exchanges on campus and agree on the details before you meet.</div>
+        </aside>
       </div>
     </div>
   );

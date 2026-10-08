@@ -8,14 +8,14 @@ const router = Router();
 const prisma = new PrismaClient();
 
 const signupSchema = z.object({
-  email: z.string().email().regex(/@pondiuni\.edu\.in$/, 'Must use a Pondicherry University email'),
+  email: z.string().email().regex(/@pondiuni\.ac\.in$/i, 'Must use a Pondicherry University email ending in @pondiuni.ac.in'),
   password: z.string().min(8),
   name: z.string().min(2),
   role: z.enum(['BUYER', 'SELLER']).default('BUYER')
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().regex(/@pondiuni\.ac\.in$/i, 'Must use a Pondicherry University email ending in @pondiuni.ac.in'),
   password: z.string()
 });
 
@@ -42,7 +42,7 @@ router.post('/signup', async (req, res) => {
 
     const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET || 'local_dev_secret', { expiresIn: '7d' });
 
-    res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, verified: user.verified } });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(422).json({ error: error.errors });
@@ -67,8 +67,11 @@ router.post('/login', async (req, res) => {
 
     const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET || 'local_dev_secret', { expiresIn: '7d' });
 
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, verified: user.verified } });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(422).json({ error: error.errors });
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });

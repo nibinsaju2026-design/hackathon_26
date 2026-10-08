@@ -1,57 +1,42 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Heart, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { api } from '../lib/api';
+import type { Listing } from '../lib/types';
+import useRequireAuth from '../lib/useRequireAuth';
+import { useToast } from '../components/ToastProvider';
+import { EmptyState, ListingCard, PageHeading, SkeletonGrid } from '../components/UI';
+
+type WishlistEntry = { id: string; listing: Listing };
 
 export default function Wishlist() {
-  const [wishlist, setWishlist] = useState<any[]>([]);
+  const user = useRequireAuth();
+  const toast = useToast();
+  const [items, setItems] = useState<WishlistEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
+  const [error, setError] = useState('');
+  const load = async () => {
+    setLoading(true);
+    try { setItems(await api<WishlistEntry[]>('/api/wishlist', { auth: true })); setError(''); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not load saved items.'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, []);
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      navigate('/login');
-      return;
-    }
+  const remove = async (listingId: string) => {
+    try {
+      await api(`/api/wishlist/${listingId}`, { method: 'DELETE', auth: true });
+      setItems((current) => current.filter((entry) => entry.listing.id !== listingId));
+      toast('Removed from your saved items.');
+    } catch (err) { toast(err instanceof Error ? err.message : 'Could not remove this item.', 'error'); }
+  };
 
-    fetch('http://localhost:8080/api/wishlist', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(data => {
-        setWishlist(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [navigate]);
-
-  if (loading) return <div>Loading wishlist...</div>;
-
+  if (!user) return null;
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Your Saved Items</h2>
-      
-      {wishlist.length === 0 ? (
-        <div className="bg-gray-800 p-8 text-center rounded-lg border border-gray-700">
-          <p className="text-gray-400">Your wishlist is empty. Start exploring!</p>
-          <Link to="/" className="inline-block mt-4 text-blue-400 hover:underline">Browse Marketplace</Link>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {wishlist.map(item => (
-            <Link key={item.id} to={`/listing/${item.listing.id}`} className="bg-gray-800 rounded-lg overflow-hidden border border-gray-700 hover:border-blue-500 transition-colors">
-              <div className="h-48 bg-gray-700 flex items-center justify-center">
-                {item.listing.imageUrl ? <img src={item.listing.imageUrl} alt={item.listing.title} className="w-full h-full object-cover" /> : <span className="text-gray-500">No Image</span>}
-              </div>
-              <div className="p-4">
-                <h3 className="font-medium text-lg truncate">{item.listing.title}</h3>
-                <p className="text-blue-400 font-bold text-xl mt-1">₹{item.listing.price}</p>
-                <div className="flex justify-between text-sm text-gray-400 mt-2">
-                  <span className={item.listing.availability === 'AVAILABLE' ? 'text-green-400' : 'text-yellow-400'}>{item.listing.availability}</span>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+      <PageHeading eyebrow="Keep an eye on it" title="Saved items" description="Listings you want to come back to." action={<Link to="/browse" className="button-secondary"><Heart size={14} /> Browse items</Link>} />
+      {loading ? <SkeletonGrid count={3} /> : error ? <EmptyState title="Saved items unavailable" description={error} action={<button className="button-secondary" onClick={() => void load()}>Try again</button>} /> : items.length === 0 ? <EmptyState title="Your saved list is empty" description="Save a campus find so it is easy to spot later." action={<Link to="/browse" className="button-primary">Explore listings</Link>} /> : (
+        <div className="listing-grid">{items.map(({ id, listing }) => <div className="relative" key={id}><ListingCard listing={listing} /><button className="button-danger absolute right-3 bottom-3 !min-h-[32px] !px-3 !text-[10px]" onClick={() => void remove(listing.id)} aria-label={`Remove ${listing.title} from saved items`}><Trash2 size={13} /> Remove</button></div>)}</div>
       )}
     </div>
   );

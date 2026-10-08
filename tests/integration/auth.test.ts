@@ -7,7 +7,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 
 describe('Auth API Integration Tests', () => {
-  it('should fail signup with non-university email', async () => {
+  it('should reject signup outside the Pondicherry University email domain', async () => {
     const res = await request(app)
       .post('/api/auth/signup')
       .send({
@@ -17,6 +17,18 @@ describe('Auth API Integration Tests', () => {
       });
       
     expect(res.status).toBe(422); // Validation Error from Zod
+  });
+
+  it('should require the @pondiuni.ac.in domain', async () => {
+    const res = await request(app)
+      .post('/api/auth/signup')
+      .send({
+        email: 'student@pondiuni.edu.in',
+        password: 'password123',
+        name: 'Student'
+      });
+
+    expect(res.status).toBe(422);
   });
 
   // Note: These tests assume a running test DB environment.

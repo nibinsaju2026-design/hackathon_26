@@ -38,6 +38,7 @@ model Listing {
   price          Float
   category       String
   condition      String
+  hostel         String?
   availability   String         @default("AVAILABLE") // AVAILABLE, RESERVED, SOLD
   imageUrl       String?
   createdAt      DateTime       @default(now())
@@ -70,6 +71,7 @@ model Offer {
   id             String         @id @default(uuid())
   price          Float
   status         String         @default("PENDING") // PENDING, COUNTERED, ACCEPTED, REJECTED, EXPIRED
+  message        String?
   pickupPoint    String?
   pickupDate     String?
   pickupTime     String?
