@@ -2,30 +2,63 @@ import express from "express";
 import { createServer } from "http";
 import rateLimit from "express-rate-limit";
 import { Server } from "socket.io";
+import { createAdapter } from "@socket.io/redis-adapter";
+import { createClient } from "redis";
 import cors from "cors";
 import dotenv from "dotenv";
+import { z } from "zod";
 
 dotenv.config();
+
+// Environment Validation
+const envSchema = z.object({
+  DATABASE_URL: z.string().url("Must be a valid Postgres URL"),
+  JWT_SECRET: z.string().min(10, "JWT secret must be at least 10 chars"),
+  PORT: z.string().optional().default("8080"),
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  REDIS_URL: z.string().url().optional(),
+  FRONTEND_URL: z.string().url().optional().default("http://localhost:5173"),
+  LOG_LEVEL: z.string().optional().default("info")
+});
+
+const envParsed = envSchema.safeParse(process.env);
+if (!envParsed.success) {
+  console.error("❌ Invalid environment variables:", JSON.stringify(envParsed.error.format(), null, 2));
+  process.exit(1);
+}
+const env = envParsed.data;
 
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: env.FRONTEND_URL,
     methods: ["GET", "POST"]
   }
 });
 
+if (env.REDIS_URL) {
+  const pubClient = createClient({ url: env.REDIS_URL });
+  const subClient = pubClient.duplicate();
+
+  Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
+    io.adapter(createAdapter(pubClient, subClient));
+    console.log("Redis adapter attached to Socket.io");
+  }).catch(err => {
+    console.error("Redis connection failed:", err);
+  });
+}
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:5173",
+  origin: env.FRONTEND_URL,
   credentials: true
 }));
 app.use(express.json());
 
 // Basic Rate Limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: { error: 'Too many requests from this IP, please try again after 15 minutes' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -47,7 +80,7 @@ import pinoHttp from "pino-http";
 
 const prisma = new PrismaClient();
 const logger = pino({
-  level: process.env.LOG_LEVEL || "info",
+  level: env.LOG_LEVEL,
   formatters: {
     level: (label: string) => {
       return { level: label.toUpperCase() };
@@ -73,7 +106,7 @@ app.get("/health", (req, res) => {
 
 // Serve frontend static files in production
 import path from "path";
-if (process.env.NODE_ENV === "production") {
+if (env.NODE_ENV === "production") {
   const frontendPath = path.join(__dirname, "../../web/dist");
   app.use(express.static(frontendPath));
   
@@ -92,18 +125,14 @@ io.on("connection", (socket) => {
 
   socket.on("message", async (data) => {
     try {
-      // Mocked user authentication for socket context (in prod use socket middleware)
       const senderId = data.message.senderId; 
-      
       const savedMessage = await prisma.message.create({
         data: {
           content: data.message.text,
-          senderId: senderId === 'me' ? 'MOCK_SENDER_ID' : senderId, // Hack since we can't test properly
+          senderId: senderId === 'me' ? 'MOCK_SENDER_ID' : senderId,
           listingId: data.listingId
         }
       });
-      
-      // Broadcast to others in the room
       socket.to(`listing:${data.listingId}`).emit("message", data.message);
     } catch (err) {
       console.error("Failed to save message", err);
@@ -115,7 +144,7 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = env.PORT;
 
 const server = httpServer.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
